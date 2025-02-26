@@ -1,32 +1,621 @@
 <!DOCTYPE html>
-<html lang="es">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tetris</title>
-    <link rel="stylesheet" href="styles.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        
+        .game-container {
+            display: flex;
+            gap: 20px;
+        }
+        
+        #game-board {
+            width: 300px;
+            height: 600px;
+            background-color: #111;
+            position: relative;
+            border: 2px solid #333;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+        }
+        
+        .info-panel {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            width: 150px;
+        }
+        
+        .next-piece {
+            background-color: #222;
+            width: 150px;
+            height: 150px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border: 2px solid #333;
+        }
+        
+        #next-piece-canvas {
+            background-color: #222;
+        }
+        
+        .score-panel {
+            background-color: #222;
+            padding: 15px;
+            border: 2px solid #333;
+            color: white;
+        }
+        
+        .controls {
+            background-color: #222;
+            padding: 15px;
+            border: 2px solid #333;
+            color: white;
+        }
+        
+        .controls p {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+        
+        button {
+            width: 100%;
+            padding: 10px;
+            margin-top: 10px;
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        
+        button:hover {
+            background-color: #45a049;
+        }
+        
+        .game-over {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 30px;
+            display: none;
+        }
+        
+        .game-over button {
+            margin-top: 20px;
+            width: 150px;
+        }
+    </style>
 </head>
 <body>
-    <div class="tetris">
-        <div class="grid"></div>
-        <div class="info">
-            <div>Score: <span id="score">0</span></div>
-            <div>Lines: <span id="lines">0</span></div>
-            <div>Level: <span id="level">1</span></div>
-            <div>High Score: <span id="high-score">0</span></div>
+    <div class="game-container">
+        <div id="game-board">
+            <canvas id="board" width="300" height="600"></canvas>
+            <div class="game-over" id="game-over">
+                <div>GAME OVER</div>
+                <button onclick="resetGame()">Jugar de nuevo</button>
+            </div>
         </div>
-        <button id="start-pause">Start/Pause</button>
-        <div class="mobile-controls">
-            <button id="move-left">◀</button>
-            <button id="rotate">⟳</button>
-            <button id="move-right">▶</button>
-            <button id="move-down">▼</button>
+        
+        <div class="info-panel">
+            <div class="next-piece">
+                <canvas id="next-piece-canvas" width="100" height="100"></canvas>
+            </div>
+            
+            <div class="score-panel">
+                <h3>Puntuación</h3>
+                <div id="score">0</div>
+                <h3>Líneas</h3>
+                <div id="lines">0</div>
+                <h3>Nivel</h3>
+                <div id="level">1</div>
+            </div>
+            
+            <div class="controls">
+                <h3>Controles</h3>
+                <p>← → : Mover</p>
+                <p>↑ : Rotar</p>
+                <p>↓ : Bajar más rápido</p>
+                <p>Espacio : Caída inmediata</p>
+                <button onclick="pauseResumeGame()" id="pause-btn">Pausa</button>
+            </div>
         </div>
     </div>
-    <audio id="clear-row" src="clear-row.mp3"></audio>
-    <audio id="game-over" src="game-over.mp3"></audio>
-    <audio id="move" src="move.mp3"></audio>
-    <audio id="rotate" src="rotate.mp3"></audio>
-    <script type="module" src="script.js"></script>
+
+    <script>
+        // Configuración del tablero
+        const ROWS = 20;
+        const COLS = 10;
+        const BLOCK_SIZE = 30;
+        const EMPTY = '#111111';
+        
+        // Configuración del juego
+        let board = [];
+        let currentPiece = null;
+        let nextPiece = null;
+        let gameInterval = null;
+        let score = 0;
+        let lines = 0;
+        let level = 1;
+        let paused = false;
+        let gameOver = false;
+        
+        // Canvas del tablero
+        const canvas = document.getElementById('board');
+        const ctx = canvas.getContext('2d');
+        
+        // Canvas de la siguiente pieza
+        const nextCanvas = document.getElementById('next-piece-canvas');
+        const nextCtx = nextCanvas.getContext('2d');
+        
+        // Piezas de Tetris con colores (color base, color claro para sombreado)
+        const PIECES = [
+            [[[0, 0], [1, 0], [0, 1], [1, 1]], ['#FFD700', '#FFED7F']], // O - Amarillo
+            [[[0, 0], [1, 0], [2, 0], [3, 0]], ['#00FFFF', '#99FFFF']], // I - Cian
+            [[[0, 0], [0, 1], [1, 1], [2, 1]], ['#0000FF', '#6666FF']], // J - Azul
+            [[[2, 0], [0, 1], [1, 1], [2, 1]], ['#FFA500', '#FFCC80']], // L - Naranja
+            [[[1, 0], [2, 0], [0, 1], [1, 1]], ['#00FF00', '#80FF80']], // S - Verde
+            [[[0, 0], [1, 0], [1, 1], [2, 1]], ['#FF0000', '#FF6666']], // Z - Rojo
+            [[[1, 0], [0, 1], [1, 1], [2, 1]], ['#800080', '#C080C0']]  // T - Morado
+        ];
+        
+        // Inicialización del tablero
+        function initBoard() {
+            board = [];
+            for (let r = 0; r < ROWS; r++) {
+                board[r] = [];
+                for (let c = 0; c < COLS; c++) {
+                    board[r][c] = EMPTY;
+                }
+            }
+        }
+        
+        // Dibuja un bloque en el tablero con efecto 3D
+        function drawBlock(x, y, colors) {
+            const [baseColor, lightColor] = Array.isArray(colors) ? colors : [colors, colors];
+            
+            // Color base del bloque
+            ctx.fillStyle = baseColor;
+            ctx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+            
+            // Borde exterior
+            ctx.strokeStyle = '#333';
+            ctx.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+            
+            // Efecto de iluminación (esquina superior izquierda)
+            ctx.fillStyle = lightColor;
+            ctx.beginPath();
+            ctx.moveTo(x * BLOCK_SIZE, y * BLOCK_SIZE);
+            ctx.lineTo(x * BLOCK_SIZE + BLOCK_SIZE, y * BLOCK_SIZE);
+            ctx.lineTo(x * BLOCK_SIZE + BLOCK_SIZE - 8, y * BLOCK_SIZE + 8);
+            ctx.lineTo(x * BLOCK_SIZE + 8, y * BLOCK_SIZE + 8);
+            ctx.lineTo(x * BLOCK_SIZE, y * BLOCK_SIZE);
+            ctx.fill();
+            
+            // Efecto de iluminación (borde izquierdo)
+            ctx.beginPath();
+            ctx.moveTo(x * BLOCK_SIZE, y * BLOCK_SIZE);
+            ctx.lineTo(x * BLOCK_SIZE + 8, y * BLOCK_SIZE + 8);
+            ctx.lineTo(x * BLOCK_SIZE + 8, y * BLOCK_SIZE + BLOCK_SIZE - 8);
+            ctx.lineTo(x * BLOCK_SIZE, y * BLOCK_SIZE + BLOCK_SIZE);
+            ctx.lineTo(x * BLOCK_SIZE, y * BLOCK_SIZE);
+            ctx.fill();
+            
+            // Sombra (esquina inferior derecha)
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.beginPath();
+            ctx.moveTo(x * BLOCK_SIZE + BLOCK_SIZE, y * BLOCK_SIZE + BLOCK_SIZE);
+            ctx.lineTo(x * BLOCK_SIZE, y * BLOCK_SIZE + BLOCK_SIZE);
+            ctx.lineTo(x * BLOCK_SIZE + 8, y * BLOCK_SIZE + BLOCK_SIZE - 8);
+            ctx.lineTo(x * BLOCK_SIZE + BLOCK_SIZE - 8, y * BLOCK_SIZE + BLOCK_SIZE - 8);
+            ctx.lineTo(x * BLOCK_SIZE + BLOCK_SIZE, y * BLOCK_SIZE + BLOCK_SIZE);
+            ctx.fill();
+            
+            // Sombra (borde derecho)
+            ctx.beginPath();
+            ctx.moveTo(x * BLOCK_SIZE + BLOCK_SIZE, y * BLOCK_SIZE + BLOCK_SIZE);
+            ctx.lineTo(x * BLOCK_SIZE + BLOCK_SIZE - 8, y * BLOCK_SIZE + BLOCK_SIZE - 8);
+            ctx.lineTo(x * BLOCK_SIZE + BLOCK_SIZE - 8, y * BLOCK_SIZE + 8);
+            ctx.lineTo(x * BLOCK_SIZE + BLOCK_SIZE, y * BLOCK_SIZE);
+            ctx.lineTo(x * BLOCK_SIZE + BLOCK_SIZE, y * BLOCK_SIZE + BLOCK_SIZE);
+            ctx.fill();
+        }
+        
+        // Dibuja un bloque en el canvas de siguiente pieza con efecto 3D
+        function drawNextBlock(x, y, colors) {
+            const [baseColor, lightColor] = Array.isArray(colors) ? colors : [colors, colors];
+            const blockSize = 25;
+            const offsetX = 25;
+            const offsetY = 25;
+            
+            // Color base del bloque
+            nextCtx.fillStyle = baseColor;
+            nextCtx.fillRect(x * blockSize + offsetX, y * blockSize + offsetY, blockSize, blockSize);
+            
+            // Borde exterior
+            nextCtx.strokeStyle = '#333';
+            nextCtx.strokeRect(x * blockSize + offsetX, y * blockSize + offsetY, blockSize, blockSize);
+            
+            // Efecto de iluminación (esquina superior izquierda)
+            nextCtx.fillStyle = lightColor;
+            nextCtx.beginPath();
+            nextCtx.moveTo(x * blockSize + offsetX, y * blockSize + offsetY);
+            nextCtx.lineTo(x * blockSize + blockSize + offsetX, y * blockSize + offsetY);
+            nextCtx.lineTo(x * blockSize + blockSize - 6 + offsetX, y * blockSize + 6 + offsetY);
+            nextCtx.lineTo(x * blockSize + 6 + offsetX, y * blockSize + 6 + offsetY);
+            nextCtx.lineTo(x * blockSize + offsetX, y * blockSize + offsetY);
+            nextCtx.fill();
+            
+            // Efecto de iluminación (borde izquierdo)
+            nextCtx.beginPath();
+            nextCtx.moveTo(x * blockSize + offsetX, y * blockSize + offsetY);
+            nextCtx.lineTo(x * blockSize + 6 + offsetX, y * blockSize + 6 + offsetY);
+            nextCtx.lineTo(x * blockSize + 6 + offsetX, y * blockSize + blockSize - 6 + offsetY);
+            nextCtx.lineTo(x * blockSize + offsetX, y * blockSize + blockSize + offsetY);
+            nextCtx.lineTo(x * blockSize + offsetX, y * blockSize + offsetY);
+            nextCtx.fill();
+            
+            // Sombra (esquina inferior derecha)
+            nextCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            nextCtx.beginPath();
+            nextCtx.moveTo(x * blockSize + blockSize + offsetX, y * blockSize + blockSize + offsetY);
+            nextCtx.lineTo(x * blockSize + offsetX, y * blockSize + blockSize + offsetY);
+            nextCtx.lineTo(x * blockSize + 6 + offsetX, y * blockSize + blockSize - 6 + offsetY);
+            nextCtx.lineTo(x * blockSize + blockSize - 6 + offsetX, y * blockSize + blockSize - 6 + offsetY);
+            nextCtx.lineTo(x * blockSize + blockSize + offsetX, y * blockSize + blockSize + offsetY);
+            nextCtx.fill();
+            
+            // Sombra (borde derecho)
+            nextCtx.beginPath();
+            nextCtx.moveTo(x * blockSize + blockSize + offsetX, y * blockSize + blockSize + offsetY);
+            nextCtx.lineTo(x * blockSize + blockSize - 6 + offsetX, y * blockSize + blockSize - 6 + offsetY);
+            nextCtx.lineTo(x * blockSize + blockSize - 6 + offsetX, y * blockSize + 6 + offsetY);
+            nextCtx.lineTo(x * blockSize + blockSize + offsetX, y * blockSize + offsetY);
+            nextCtx.lineTo(x * blockSize + blockSize + offsetX, y * blockSize + blockSize + offsetY);
+            nextCtx.fill();
+        }
+        
+        // Dibuja todo el tablero
+        function drawBoard() {
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (board[r][c] !== EMPTY) {
+                        // Busca el color claro correspondiente
+                        let baseColor = board[r][c];
+                        let lightColor = baseColor;
+                        
+                        // Encuentra el color claro correspondiente
+                        for (let piece of PIECES) {
+                            if (piece[1][0] === baseColor) {
+                                lightColor = piece[1][1];
+                                break;
+                            }
+                        }
+                        
+                        drawBlock(c, r, [baseColor, lightColor]);
+                    } else {
+                        drawBlock(c, r, EMPTY);
+                    }
+                }
+            }
+        }
+        
+        // Pieza de Tetris
+        class Piece {
+            constructor(shape, colors) {
+                this.shape = shape;
+                this.colors = colors;  // [color base, color claro]
+                this.y = 0;
+                this.x = Math.floor(COLS / 2) - 1;
+                this.rotation = 0;
+            }
+            
+            // Dibuja la pieza actual
+            draw() {
+                for (let block of this.getCurrentShape()) {
+                    drawBlock(this.x + block[0], this.y + block[1], this.colors);
+                }
+            }
+            
+            // Dibuja la siguiente pieza
+            drawNext() {
+                nextCtx.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
+                nextCtx.fillStyle = '#222';
+                nextCtx.fillRect(0, 0, nextCanvas.width, nextCanvas.height);
+                
+                for (let block of this.shape) {
+                    drawNextBlock(block[0], block[1], this.colors);
+                }
+            }
+            
+            // Obtiene la forma actual basada en la rotación
+            getCurrentShape() {
+                // Pieza O no rota
+                if (this.colors[0] === '#FFD700') return this.shape;
+                
+                let rotatedShape = [];
+                for (let block of this.shape) {
+                    let [x, y] = block;
+                    
+                    // Rotar 90 grados en sentido horario
+                    if (this.rotation === 1) {
+                        rotatedShape.push([y, -x + (this.colors[0] === '#00FFFF' ? 3 : 2)]);
+                    }
+                    // Rotar 180 grados
+                    else if (this.rotation === 2) {
+                        rotatedShape.push([-x + (this.colors[0] === '#00FFFF' ? 3 : 2), -y + (this.colors[0] === '#00FFFF' ? 0 : 1)]);
+                    }
+                    // Rotar 270 grados
+                    else if (this.rotation === 3) {
+                        rotatedShape.push([-y + (this.colors[0] === '#00FFFF' ? 0 : 1), x]);
+                    }
+                    else {
+                        rotatedShape.push([x, y]);
+                    }
+                }
+                
+                return rotatedShape;
+            }
+            
+            // Mueve la pieza hacia abajo
+            moveDown() {
+                this.y++;
+                if (this.collision()) {
+                    this.y--;
+                    this.lock();
+                    return false;
+                }
+                return true;
+            }
+            
+            // Mueve la pieza a la izquierda
+            moveLeft() {
+                this.x--;
+                if (this.collision()) {
+                    this.x++;
+                    return false;
+                }
+                return true;
+            }
+            
+            // Mueve la pieza a la derecha
+            moveRight() {
+                this.x++;
+                if (this.collision()) {
+                    this.x--;
+                    return false;
+                }
+                return true;
+            }
+            
+            // Rota la pieza
+            rotate() {
+                let oldRotation = this.rotation;
+                this.rotation = (this.rotation + 1) % 4;
+                
+                if (this.collision()) {
+                    // Intenta compensar la colisión
+                    let originalX = this.x;
+                    
+                    // Intenta mover a la izquierda
+                    this.x--;
+                    if (this.collision()) {
+                        this.x = originalX;
+                        // Intenta mover a la derecha
+                        this.x++;
+                        if (this.collision()) {
+                            this.x = originalX;
+                            // Si todo falla, revierte la rotación
+                            this.rotation = oldRotation;
+                            return false;
+                        }
+                    }
+                }
+                
+                return true;
+            }
+            
+            // Verifica colisiones
+            collision() {
+                for (let block of this.getCurrentShape()) {
+                    let x = this.x + block[0];
+                    let y = this.y + block[1];
+                    
+                    if (x < 0 || x >= COLS || y >= ROWS) return true;
+                    if (y >= 0 && board[y][x] !== EMPTY) return true;
+                }
+                return false;
+            }
+            
+            // Bloquea la pieza en el tablero
+            lock() {
+                for (let block of this.getCurrentShape()) {
+                    let x = this.x + block[0];
+                    let y = this.y + block[1];
+                    
+                    if (y < 0) {
+                        gameOver = true;
+                        document.getElementById('game-over').style.display = 'flex';
+                        clearInterval(gameInterval);
+                        return;
+                    }
+                    
+                    if (y >= 0) {
+                        board[y][x] = this.colors[0];  // Guardamos el color base
+                    }
+                }
+                
+                // Verifica líneas completas
+                let linesCleared = 0;
+                for (let r = 0; r < ROWS; r++) {
+                    let isRowFull = true;
+                    for (let c = 0; c < COLS; c++) {
+                        if (board[r][c] === EMPTY) {
+                            isRowFull = false;
+                            break;
+                        }
+                    }
+                    
+                    if (isRowFull) {
+                        linesCleared++;
+                        // Mueve todas las filas por encima hacia abajo
+                        for (let y = r; y > 0; y--) {
+                            for (let c = 0; c < COLS; c++) {
+                                board[y][c] = board[y-1][c];
+                            }
+                        }
+                        // Limpia la fila superior
+                        for (let c = 0; c < COLS; c++) {
+                            board[0][c] = EMPTY;
+                        }
+                    }
+                }
+                
+                // Actualiza puntuación y nivel
+                if (linesCleared > 0) {
+                    const lineScores = [0, 100, 300, 500, 800]; // Puntos por 0, 1, 2, 3, 4 líneas
+                    score += lineScores[linesCleared] * level;
+                    lines += linesCleared;
+                    level = Math.floor(lines / 10) + 1;
+                    
+                    // Actualiza la UI
+                    document.getElementById('score').textContent = score;
+                    document.getElementById('lines').textContent = lines;
+                    document.getElementById('level').textContent = level;
+                    
+                    // Ajusta la velocidad
+                    clearInterval(gameInterval);
+                    if (!paused && !gameOver) {
+                        gameInterval = setInterval(moveDown, 1000 / level);
+                    }
+                }
+                
+                // Crea una nueva pieza
+                currentPiece = nextPiece;
+                createNextPiece();
+            }
+            
+            // Caída inmediata de la pieza
+            hardDrop() {
+                while (this.moveDown()) {}
+            }
+        }
+        
+        // Crea una nueva pieza aleatoria
+        function createPiece() {
+            let randomIndex = Math.floor(Math.random() * PIECES.length);
+            let piece = PIECES[randomIndex];
+            return new Piece([...piece[0]], [...piece[1]]);
+        }
+        
+        // Crea la siguiente pieza
+        function createNextPiece() {
+            nextPiece = createPiece();
+            nextPiece.drawNext();
+        }
+        
+        // Funciones para controlar el juego
+        function moveDown() {
+            if (!paused && !gameOver) {
+                currentPiece.moveDown();
+                update();
+            }
+        }
+        
+        // Actualiza el tablero
+        function update() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawBoard();
+            currentPiece.draw();
+        }
+        
+        // Manejo de teclado
+        document.addEventListener('keydown', function(e) {
+            if (gameOver || paused) return;
+            
+            if (e.keyCode === 37) { // Izquierda
+                currentPiece.moveLeft();
+                update();
+            } 
+            else if (e.keyCode === 39) { // Derecha
+                currentPiece.moveRight();
+                update();
+            } 
+            else if (e.keyCode === 40) { // Abajo
+                currentPiece.moveDown();
+                update();
+            } 
+            else if (e.keyCode === 38) { // Arriba - Rotar
+                currentPiece.rotate();
+                update();
+            } 
+            else if (e.keyCode === 32) { // Espacio - Caída dura
+                currentPiece.hardDrop();
+                update();
+            }
+        });
+        
+        // Inicia el juego
+        function startGame() {
+            initBoard();
+            drawBoard();
+            
+            currentPiece = createPiece();
+            createNextPiece();
+            
+            if (gameInterval) clearInterval(gameInterval);
+            gameInterval = setInterval(moveDown, 1000);
+            
+            gameOver = false;
+            paused = false;
+            score = 0;
+            lines = 0;
+            level = 1;
+            
+            document.getElementById('score').textContent = '0';
+            document.getElementById('lines').textContent = '0';
+            document.getElementById('level').textContent = '1';
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('pause-btn').textContent = 'Pausa';
+        }
+        
+        // Reinicia el juego
+        function resetGame() {
+            startGame();
+        }
+        
+        // Pausa/Reanuda el juego
+        function pauseResumeGame() {
+            paused = !paused;
+            
+            if (paused) {
+                clearInterval(gameInterval);
+                document.getElementById('pause-btn').textContent = 'Reanudar';
+            } else {
+                gameInterval = setInterval(moveDown, 1000 / level);
+                document.getElementById('pause-btn').textContent = 'Pausa';
+            }
+        }
+        
+        // Inicia el juego cuando carga la página
+        window.onload = startGame;
+    </script>
 </body>
 </html>
